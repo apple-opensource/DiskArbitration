@@ -187,6 +187,44 @@ DAReturn _DADiskRefresh( DADiskRef disk )
                     }
                 }
 ///w:stop
+                /*
+                 * volume name and mountpoint could change asynchronously depending on the filesystem implementation
+                 * update the name and mountpoint if they have changed
+                 */
+                CFURLRef path;
+                path = CFURLCreateFromFileSystemRepresentation( kCFAllocatorDefault,
+                                                                ( void * ) mountList[mountListIndex].f_mntonname,
+                                                                strlen( mountList[mountListIndex].f_mntonname ),
+                                                                TRUE );
+                if ( path )
+                {
+                    if ( DADiskCompareDescription( disk, kDADiskDescriptionVolumePathKey, path ) )
+                    {
+                        DADiskSetBypath( disk, path );
+
+                        DADiskSetDescription( disk, kDADiskDescriptionVolumePathKey, path );
+
+                        DALogDebug( " volume path changed for %@", disk);
+
+                        CFArrayAppendValue( keys, kDADiskDescriptionVolumePathKey );
+                    }
+
+                    CFStringRef name = _DAFileSystemCopyName( DADiskGetFileSystem( disk ), path );
+
+                    if ( name )
+                    {
+                        if ( DADiskCompareDescription( disk, kDADiskDescriptionVolumeNameKey, name ) )
+                        {
+                            DALogDebug( " volume name changed for %@", disk);
+
+                            DADiskSetDescription( disk, kDADiskDescriptionVolumeNameKey, name );
+
+                            CFArrayAppendValue( keys, kDADiskDescriptionVolumeNameKey );
+                        }
+                        CFRelease( name );
+                    }
+                    CFRelease( path );
+                }
 
                 if ( CFArrayGetCount( keys ) )
                 {
@@ -361,6 +399,29 @@ _DADiskSetEncodingErr:
     if ( path2 )  CFRelease( path2 );
 
     return status;
+}
+
+errno_t _DADiskGetEncryptionStatus( CFAllocatorRef allocator, DADiskRef disk, CFBooleanRef *encryption_status, CFNumberRef *encryption_details )
+{
+    bool encrypted;
+    UInt32 detail;
+    errno_t error;
+
+    error = _FSGetMediaEncryptionStatusAtPath( DADiskGetBSDPath(disk, FALSE), &encrypted, &detail );
+
+    if ( error == 0 )
+    {
+        if ( encryption_status )
+        {
+             *encryption_status = encrypted ? kCFBooleanTrue : kCFBooleanFalse;
+        }
+        if ( encryption_details )
+        {
+            *encryption_details = CFNumberCreate( allocator, kCFNumberSInt32Type, &detail);
+        }
+    }
+
+    return error;
 }
 
 Boolean _DAUnitIsUnreadable( DADiskRef disk )
